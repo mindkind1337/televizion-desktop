@@ -225,7 +225,39 @@ fn sweep_sessions(app: &Arc<app::App>) {
     }
 }
 
+/// Stops on a termination signal, or when the app that started this process is gone.
 async fn shutdown_signal() {
+    tokio::select! {
+        _ = os_signal() => {}
+        _ = parent_gone() => { logi!("[shutdown] the app that started the transcoder is gone - stopping"); }
+    }
+}
+
+/// With TVZ_EXIT_WITH_PARENT=1 the app keeps this process's standard input open as a pipe and
+/// never writes to it. The pipe closes when the app ends, however it ends (closed, crashed,
+/// killed), and reading it then returns end-of-file. Without the variable this never resolves.
+async fn parent_gone() {
+    if std::env::var("TVZ_EXIT_WITH_PARENT").map(|v| v == "1").unwrap_or(false) {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 64];
+            let mut stdin = std::io::stdin();
+            loop {
+                match stdin.read(&mut buf) {
+                    Ok(0) | Err(_) => break, // end-of-file or a broken pipe: the parent is gone
+                    Ok(_) => {}              // ignore anything written
+                }
+            }
+            let _ = tx.send(());
+        });
+        let _ = rx.await;
+    } else {
+        std::future::pending::<()>().await;
+    }
+}
+
+async fn os_signal() {
     #[cfg(unix)]
     {
         let mut term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {

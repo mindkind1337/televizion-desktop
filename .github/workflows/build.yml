@@ -131,9 +131,10 @@ jobs:
           "--- encoders found"; Select-String -Path "$data\transcoder.log" -Pattern 'RESULT|hwaccel.*(FAILED|OK)' | Select-Object -Last 8 | ForEach-Object { $_.Line }
 
           Stop-Process -Id $app.Id -Force
-          Start-Sleep -Seconds 4
+          Start-Sleep -Seconds 8
           $left = Get-Process | Where-Object { $_.ProcessName -match 'televizion-transcoder|ffmpeg' }
-          if ($left) { $left | Select-Object ProcessName, Id; "note: these were still running after the app was killed (a normal close stops them)" }
+          if ($left) { $left | Select-Object ProcessName, Id; throw "the transcoder or ffmpeg survived the app being killed" }
+          "transcoder and ffmpeg stopped with the app"
           $busy.Stop()
 
   # Installs the PREVIOUS release, starts it, and checks that it updates itself to the version

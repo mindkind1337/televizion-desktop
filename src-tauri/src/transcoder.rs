@@ -51,7 +51,10 @@ pub fn start(resources: &Path, log_file: &Path) -> Option<Started> {
         .env("TVZ_STREAMS_DIR", std::env::temp_dir().join("televizion-streams"))
         .env("TVZ_LOG_FILE", log_file)
         .env("PATH", path)
-        .stdin(Stdio::null())
+        // Kept open and never written to: when the app ends (even killed), the pipe closes and the
+        // transcoder stops itself, taking its ffmpeg processes with it.
+        .env("TVZ_EXIT_WITH_PARENT", "1")
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null()); // everything it prints is also in its log file
     #[cfg(windows)]
