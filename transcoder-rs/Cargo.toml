@@ -1,0 +1,27 @@
+[package]
+name = "televizion-transcoder"
+version = "1.0.0"
+description = "Televizion desktop transcoder: wraps ffmpeg/ffprobe and serves HLS to the web player on loopback"
+edition = "2021"
+publish = false
+
+[features]
+default = ["tls"]
+# HTTPS sources (rustls + ring, bundled Mozilla roots). Off = plain-http sources only.
+tls = ["reqwest/rustls-tls-webpki-roots"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "process", "sync", "time", "macros", "signal", "fs"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws"] }
+reqwest = { version = "0.12", default-features = false }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha1 = "0.10"
+bytes = "1"
+futures-core = "0.3"
+url = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

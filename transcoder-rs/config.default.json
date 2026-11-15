@@ -1,0 +1,46 @@
+{
+  "port": 3002,
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "ffmpeg": {
+    "threads": 0,
+    "preset": "veryfast",
+    "crf": 23,
+    "maxHeight": 1080,
+    "gopSize": 72,
+    "keyintMin": 24,
+    "audioBitrate": "128k",
+    "audioSampleRate": 48000,
+    "audioChannels": 2,
+    "hwaccel": "auto",
+    "hwdecode": true,
+    "forceNvidiaDecode": true
+  },
+  "segments": {
+    "duration": 3,
+    "keepBehindSec": 60,
+    "throttlePauseSec": 60,
+    "throttleResumeSec": 30,
+    "playlistWindowSec": 60,
+    "bufferWindowSec": 30
+  },
+  "downloader": {
+    "maxRetries": 5
+  },
+  "limits": {
+    "maxSessions": 8
+  },
+  "session": {
+    "ttlMinutes": 10,
+    "startupTimeoutTranscode": 45000,
+    "startupTimeoutCopy": 15000
+  },
+  "probe": {
+    "analyzeDuration": "20000000",
+    "probeSize": "20000000",
+    "startAnalyzeDuration": "5000000",
+    "startProbeSize": "5000000",
+    "seekAnalyzeDuration": "5000000",
+    "seekProbeSize": "5000000",
+    "httpTimeout": "8000000"
+  }
+}

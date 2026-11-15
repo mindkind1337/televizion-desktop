@@ -1,0 +1,6 @@
+target/
+src-tauri/resources/
+src-tauri/icons/
+src-tauri/gen/
+ffmpeg.zip
+ffmpeg-tmp/

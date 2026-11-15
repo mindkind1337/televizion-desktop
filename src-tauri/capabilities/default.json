@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The window shows the Televizion website and needs no access to the app's commands.",
+  "windows": ["main"],
+  "permissions": []
+}

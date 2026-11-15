@@ -1,0 +1,23 @@
+[package]
+name = "televizion"
+version = "1.2.0"
+description = "Televizion desktop app: the web player plus a transcoder that runs on this computer"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+dunce = "1"
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

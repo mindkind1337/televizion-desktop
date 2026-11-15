@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Transcode Stats</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e2e8f0;font-family:'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;padding:16px 20px}
+h1{font-size:14px;color:#e2e8f0;margin:0;font-weight:600;letter-spacing:-0.3px}
+/* ── Top bar ── */
+.top-bar{display:flex;align-items:stretch;padding:0;background:#13131a;border:1px solid #1f1f2e;border-radius:6px;margin-bottom:14px;overflow:hidden;flex-wrap:wrap}
+.top-bar .brand{display:flex;align-items:center;gap:8px;padding:10px 16px;border-right:1px solid #1f1f2e;white-space:nowrap}
+.top-bar .stat-group{display:flex;align-items:center;gap:2px;padding:6px 12px;border-right:1px solid #1a1a24}
+.top-bar .stat-group:last-of-type{border-right:none}
+.top-bar .stat{display:flex;flex-direction:column;align-items:center;padding:2px 8px;min-width:52px}
+.top-bar .stat .label{font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:0.6px;line-height:1.3}
+.top-bar .stat .value{font-size:15px;font-weight:600;color:#e2e8f0;line-height:1.4}
+.top-bar .divider{width:1px;background:#1f1f2e;margin:6px 0}
+.ws-status{display:flex;align-items:center;gap:6px;font-size:10px;padding:0 14px;margin-left:auto;color:#8b949e}
+.ws-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;flex-shrink:0}
+.ws-dot.connected{background:#10b981}
+.top-actions{display:flex;align-items:center;gap:6px;padding:0 12px;border-left:1px solid #1a1a24}
+.top-actions button{background:transparent;color:#4f46e5;border:1px solid #2a2a3a;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:10px;font-weight:500;transition:all .15s}
+.top-actions button:hover{background:#4f46e520;border-color:#4f46e5}
+/* ── Sessions ── */
+.no-sessions{text-align:center;padding:48px 20px;color:#8b949e;font-size:14px}
+.session{background:#13131a;border:1px solid #1f1f2e;border-radius:6px;margin-bottom:10px;overflow:hidden}
+.session.collapsed .session-body,.session.collapsed .log-area{display:none!important}
+.session-header{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;background:#13131a;border-bottom:1px solid #1a1a24;cursor:pointer;user-select:none;transition:background .12s}
+.session-header:hover{background:#1e1e28}
+.session-header .sid{font-family:'Roboto Mono','SF Mono',SFMono-Regular,ui-monospace,Menlo,monospace;color:#a78bfa;font-size:11px;font-weight:500}
+.session-header .state{padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px}
+.state-starting{background:#f59e0b;color:#000}
+.state-running{background:#10b981;color:#fff}
+.state-seeking{background:#4f46e5;color:#fff}
+.state-stopped{background:#ef4444;color:#fff}
+.state-paused{background:#f59e0b;color:#000}
+.hdr-stat{font-size:10px;margin-right:8px;font-family:'Roboto Mono','SF Mono',SFMono-Regular,ui-monospace,Menlo,monospace;white-space:nowrap;color:#8b949e}
+.hdr-badge{padding:1px 6px;border-radius:4px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
+.hdr-codec{font-size:10px;color:#8b949e}
+/* ── Session body grid ── */
+.session-body{padding:10px 12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px}
+.section{background:#0a0a0f;border:1px solid #1f1f2e;border-radius:6px;padding:8px 10px}
+.section h3{font-size:10px;color:#4f46e5;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px;border-bottom:1px solid #1f1f2e;padding-bottom:4px;font-weight:600}
+.row{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-bottom:1px solid #13131a}
+.row:last-child{border-bottom:none}
+.row .k{color:#8b949e;font-size:11px}
+.row .v{color:#e2e8f0;font-size:11px;font-family:'Roboto Mono','SF Mono',SFMono-Regular,ui-monospace,Menlo,monospace;text-align:right;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .v.good{color:#10b981}
+.row .v.warn{color:#f59e0b}
+.row .v.bad{color:#ef4444}
+.url-row{padding:4px 0;word-break:break-all;font-size:10px;color:#8b949e;font-family:monospace;line-height:1.4}
+.bar-container{height:5px;background:#1f1f2e;border-radius:3px;overflow:hidden;margin-top:4px;position:relative}
+.bar-fill{height:100%;border-radius:3px;transition:width 0.3s}
+.bar-fill.green{background:#10b981}
+.bar-fill.blue{background:#4f46e5}
+.bar-fill.orange{background:#f59e0b}
+.actions{margin-top:4px}
+.actions button{background:#1a1a24;color:#e2e8f0;border:1px solid #2a2a3a;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:500;transition:all .12s}
+.actions button:hover{background:#1e1e28}
+.actions button.danger{border-color:#ef4444;color:#ef4444}
+.actions button.danger:hover{background:#ef444420}
+.actions button.paused{border-color:#10b981;color:#10b981}
+.actions button.paused:hover{background:#10b98120}
+.log-area{grid-column:1/-1;background:#0a0a0f;border:1px solid #1f1f2e;border-radius:6px;padding:8px 10px;max-height:120px;overflow-y:auto;font-family:'Roboto Mono','SF Mono',SFMono-Regular,ui-monospace,Menlo,monospace;font-size:10px;color:#8b949e;line-height:1.6}
+.log-area::-webkit-scrollbar{width:6px}
+.log-area::-webkit-scrollbar-track{background:transparent}
+.log-area::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="top-bar">
+  <div class="brand"><img src="http://televizion.tv/browse/assets/img/logo.png" alt="Logo" style="height:18px;width:auto;"></div>
+  <div class="stat-group">
+    <div class="stat"><span class="label">Sessions</span><span class="value" id="totalSessions">0</span></div>
+    <div class="stat"><span class="label">Uptime</span><span class="value" id="uptime" style="font-size:13px">0s</span></div>
+  </div>
+  <div class="stat-group">
+    <div class="stat"><span class="label">Sys CPU</span><span class="value" id="cpuPct">0%</span></div>
+    <div class="stat"><span class="label">Node</span><span class="value" id="nodeCpuPct">0%</span></div>
+    <div class="stat"><span class="label">FFmpeg</span><span class="value" id="ffmpegCpuPct">0%</span></div>
+    <div class="stat"><span class="label">Load</span><span class="value" id="loadAvg" style="font-size:11px">-</span></div>
+  </div>
+  <div class="stat-group">
+    <div class="stat"><span class="label">Node Mem</span><span class="value" id="memory" style="font-size:13px">0</span></div>
+    <div class="stat"><span class="label">FF Mem</span><span class="value" id="ffmpegMem" style="font-size:13px">0</span></div>
+    <div class="stat"><span class="label">Heap</span><span class="value" id="heap" style="font-size:13px">0</span></div>
+    <div class="stat"><span class="label">RAM</span><span class="value" id="ramInfo" style="font-size:11px">-</span></div>
+  </div>
+  <div class="stat-group" id="gpuGroup" style="display:none">
+    <div class="stat" id="gpuStatBlock"><span class="label">GPU</span><span class="value" id="gpuUtil">-</span></div>
+    <div class="stat" id="gpuEncBlock"><span class="label">Enc/Dec</span><span class="value" id="gpuEnc" style="font-size:11px">-</span></div>
+    <div class="stat" id="gpuMemBlock"><span class="label">VRAM</span><span class="value" id="gpuMem" style="font-size:11px">-</span></div>
+    <div class="stat" id="gpuTempBlock"><span class="label">Temp</span><span class="value" id="gpuTemp">-</span></div>
+  </div>
+  <div class="stat-group">
+    <div class="stat"><span class="label">Encoder</span><span class="value" id="vEncoder" style="font-size:12px">-</span></div>
+    <div class="stat"><span class="label">FFmpeg</span><span class="value" id="ffVer" style="font-size:10px">-</span></div>
+  </div>
+  <div class="top-actions">
+    <button id="btnHwLog" onclick="document.getElementById('hwModal').style.display='flex'" title="Hardware detection log">HW Detect</button>
+  </div>
+  <div class="ws-status"><div class="ws-dot" id="wsDot"></div><span id="wsLabel">Connecting...</span></div>
+</div>
+<div id="hwModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:#13131a;border:1px solid #1f1f2e;border-radius:6px;width:min(720px,92vw);max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,0.4)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #1f1f2e">
+      <span style="font-size:14px;font-weight:600;color:#e6edf3">Hardware Detection Log</span>
+      <button onclick="document.getElementById('hwModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:color .12s" onmouseover="this.style.color='#e2e8f0'" onmouseout="this.style.color='#8b949e'">&times;</button>
+    </div>
+    <div id="hwLogBody" style="padding:14px 16px;overflow-y:auto;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,monospace;font-size:11px;line-height:1.7;color:#e2e8f0;white-space:pre-wrap"></div>
+  </div>
+</div>
+<div id="sessions"></div>
+<div id="globalLogsContainer" style="margin-top:12px"></div>
+
+<script>
+const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsUrl = wsProto + '//' + location.host + '/ws/stats';
+const pollUrl = location.protocol + '//' + location.host + '/stats/json';
+let ws = null;
+let lastData = null;
+let reconnectTimer = null;
+let pollTimer = null;
+let wsConnected = false;
+let wsFailed = 0;
+
+function pollStats() {
+  fetch(pollUrl).then(r => r.json()).then(data => {
+    lastData = data; render(data);
+    document.getElementById('wsDot').classList.add('connected');
+    document.getElementById('wsLabel').textContent = 'Polling';
+  }).catch(() => {
+    document.getElementById('wsDot').classList.remove('connected');
+    document.getElementById('wsLabel').textContent = 'Error';
+  });
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollStats();
+  pollTimer = setInterval(pollStats, 1000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function connect() {
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch(e) {
+    console.warn('WebSocket failed, falling back to polling', e);
+    startPolling();
+    return;
+  }
+  const wsTimeout = setTimeout(() => {
+    if (!wsConnected) { wsFailed++; ws.close(); }
+  }, 3000);
+  ws.onopen = () => {
+    wsConnected = true; wsFailed = 0;
+    clearTimeout(wsTimeout);
+    stopPolling();
+    document.getElementById('wsDot').classList.add('connected');
+    document.getElementById('wsLabel').textContent = 'Connected';
+  };
+  ws.onclose = () => {
+    wsConnected = false;
+    document.getElementById('wsDot').classList.remove('connected');
+    if (wsFailed >= 2) {
+      document.getElementById('wsLabel').textContent = 'Polling (WS unavailable)';
+      startPolling();
+    } else {
+      document.getElementById('wsLabel').textContent = 'Reconnecting...';
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 2000);
+    }
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (e) => {
+    try { lastData = JSON.parse(e.data); render(lastData); } catch(_) {}
+  };
+}
+
+function fmtBytes(b) {
+  if (!b || b < 0) return '0 B';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+
+function fmtTime(sec) {
+  if (!sec || sec < 0) return '0s';
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = Math.floor(sec%60);
+  if (h > 0) return h+'h '+m+'m '+s+'s';
+  if (m > 0) return m+'m '+s+'s';
+  return s+'s';
+}
+
+function fmtDuration(sec) {
+  if (!sec || sec <= 0) return '-';
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = Math.floor(sec%60);
+  return (h>0?h+':':'') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+function pct(a,b) { return b>0 ? Math.min(100, Math.round(a/b*100)) : 0; }
+
+const _expandedArgs = new Set();
+
+function saveScrollPositions() {
+  const pageY = window.scrollY;
+  const pos = {};
+  document.querySelectorAll('.log-area[data-log-id]').forEach(el => {
+    if (el.scrollTop > 0) pos[el.dataset.logId] = el.scrollTop;
+  });
+  document.querySelectorAll('pre[id^="args_"]').forEach(el => {
+    if (el.scrollTop > 0) pos[el.id] = el.scrollTop;
+  });
+  const collapsed = new Set();
+  document.querySelectorAll('.session.collapsed').forEach(el => {
+    const sid = el.querySelector('.sid');
+    if (sid) collapsed.add(sid.textContent);
+  });
+  const glSession = document.querySelector('#globalLogsContainer .session.collapsed');
+  if (glSession) collapsed.add('__global__');
+  return { pageY, pos, collapsed };
+}
+
+function restoreScrollPositions(saved) {
+  window.scrollTo(0, saved.pageY);
+  document.querySelectorAll('.log-area[data-log-id]').forEach(el => {
+    const s = saved.pos[el.dataset.logId];
+    if (s) el.scrollTop = s;
+  });
+  document.querySelectorAll('pre[id^="args_"]').forEach(el => {
+    const s = saved.pos[el.id];
+    if (s) el.scrollTop = s;
+  });
+  saved.collapsed.forEach(sid => {
+    if (sid === '__global__') {
+      const el = document.querySelector('#globalLogsContainer .session');
+      if (el) el.classList.add('collapsed');
+    } else {
+      document.querySelectorAll('.sid').forEach(span => {
+        if (span.textContent === sid) {
+          const session = span.closest('.session');
+          if (session) session.classList.add('collapsed');
+        }
+      });
+    }
+  });
+}
+
+function render(data) {
+  const scrollPos = saveScrollPositions();
+
+  // Only touch DOM when value actually changed
+  function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el && el.textContent !== val) el.textContent = val;
+  }
+  function setStyle(id, prop, val) {
+    const el = document.getElementById(id);
+    if (el && el.style[prop] !== val) el.style[prop] = val;
+  }
+  function setHtml(id, val) {
+    const el = document.getElementById(id);
+    if (el && el.innerHTML !== val) el.innerHTML = val;
+  }
+
+  setText('totalSessions', String(data.activeSessions));
+  setText('uptime', fmtTime(data.uptime));
+  setText('cpuPct', (data.cpuPct||0) + '%');
+  setStyle('cpuPct', 'color', data.cpuPct > 80 ? '#ef4444' : data.cpuPct > 50 ? '#f59e0b' : '#10b981');
+  // Node.js process CPU
+  setText('nodeCpuPct', (data.nodeCpuPct||0) + '%');
+  // FFmpeg total CPU
+  setText('ffmpegCpuPct', (data.ffmpegTotalCpuPct||0) + '%');
+  setStyle('nodeCpuPct', 'color', data.nodeCpuPct > 50 ? '#ef4444' : data.nodeCpuPct > 20 ? '#f59e0b' : '#10b981');
+  setStyle('ffmpegCpuPct', 'color', data.ffmpegTotalCpuPct > 80 ? '#ef4444' : data.ffmpegTotalCpuPct > 50 ? '#f59e0b' : '#10b981');
+  // Load avg is 0/0/0 on Windows — hide it
+  const loadVal = data.loadAvg && data.loadAvg.some(v => v > 0) ? data.loadAvg.map(v => Number(v).toFixed(2)).join(' / ') : '';
+  if (loadVal) {
+    setStyle('loadAvg', 'display', ''); // span itself
+    setText('loadAvg', loadVal);
+    var loadParent = document.getElementById('loadAvg');
+    if (loadParent && loadParent.parentElement) loadParent.parentElement.style.display = '';
+  } else {
+    var loadParent2 = document.getElementById('loadAvg');
+    if (loadParent2 && loadParent2.parentElement) loadParent2.parentElement.style.display = 'none';
+  }
+  setText('memory', data.memoryMB + ' MB');
+  setText('ffmpegMem', (data.ffmpegTotalMemoryMB||0) + ' MB');
+  setText('heap', data.heapMB + ' MB');
+  setText('ramInfo', data.freeMem ? (data.freeMem + ' / ' + data.totalMem + ' MB') : '-');
+  // GPU stats (hidden when no GPU detected)
+  if (data.gpu && data.gpu.length > 0) {
+    const g = data.gpu[0];
+    setStyle('gpuGroup', 'display', '');
+    const gpuLabel = document.querySelector('#gpuStatBlock .label');
+    if (gpuLabel) gpuLabel.textContent = g.name && g.name.length < 30 ? g.name : 'GPU';
+    setText('gpuUtil', g.gpuUtil + '%');
+    setStyle('gpuUtil', 'color', g.gpuUtil > 80 ? '#ef4444' : g.gpuUtil > 50 ? '#f59e0b' : '#10b981');
+    // Encoder/Decoder utilization
+    var encDec = 'Enc ' + (g.encUtil || 0) + '% / Dec ' + (g.decUtil || 0) + '%';
+    setText('gpuEnc', encDec);
+    setStyle('gpuEnc', 'color', g.encUtil > 80 ? '#ef4444' : g.encUtil > 50 ? '#f59e0b' : '#10b981');
+    const hasVram = g.memTotal > 0;
+    setStyle('gpuMemBlock', 'display', hasVram ? '' : 'none');
+    if (hasVram) setText('gpuMem', g.memUsed + ' / ' + g.memTotal + ' MB');
+    setText('gpuTemp', g.temp > 0 ? g.temp + '°C' : '-');
+    setStyle('gpuTemp', 'color', g.temp > 85 ? '#ef4444' : g.temp > 70 ? '#f59e0b' : '#10b981');
+    setStyle('gpuTempBlock', 'display', g.temp > 0 ? '' : 'none');
+  } else {
+    setStyle('gpuGroup', 'display', 'none');
+  }
+  // Video encoder badge (show H.264 + HEVC encoders)
+  const h264Enc = data.videoEncoder || 'libx264';
+  const hevcEnc = data.hevcEncoder || 'libx265';
+  const encLabel = h264Enc === hevcEnc ? h264Enc : h264Enc + ' / ' + hevcEnc;
+  setText('vEncoder', encLabel);
+  const isHw = (s) => s.includes('nvenc') || s.includes('amf') || s.includes('qsv') || s.includes('vaapi');
+  setStyle('vEncoder', 'color', (isHw(h264Enc) || isHw(hevcEnc)) ? '#10b981' : '#8b949e');
+  if (data.ffmpegVersion) setText('ffVer', data.ffmpegVersion);
+
+  // HW detection log (update modal content)
+  if (data.hwDetectLog && data.hwDetectLog.length > 0) {
+    const hwBody = document.getElementById('hwLogBody');
+    if (hwBody) {
+      const hwHtml = data.hwDetectLog.map(function(e) {
+        var ts = new Date(e.t).toLocaleTimeString();
+        var line = e.msg || '';
+        var cls = '';
+        // Color coding for each log line
+        if (line.indexOf('test encode OK') >= 0 || line.indexOf('✓') >= 0) cls = 'good';
+        else if (line.indexOf('FAILED') >= 0 || line.indexOf('failed') >= 0) cls = 'bad';
+        else if (line.indexOf('not found') >= 0 || line.indexOf('skipped') >= 0 || line.indexOf('not available') >= 0 || line.indexOf('disabled') >= 0 || line.indexOf('using CPU') >= 0) cls = 'warn';
+        else if (line.indexOf('testing ') >= 0) cls = ''; // neutral for "testing..." lines
+
+        // Format: icon + colored line
+        var icon = '';
+        if (cls === 'good') icon = '\u2705 ';
+        else if (cls === 'bad') icon = '\u274C ';
+        else if (cls === 'warn') icon = '\u26A0\uFE0F ';
+        else if (line.indexOf('testing ') >= 0) icon = '\u23F3 ';
+        else if (line.indexOf('config:') >= 0 || line.indexOf('platform:') >= 0) icon = '\u2699\uFE0F ';
+        else if (line.indexOf('nvidia-smi') >= 0 || line.indexOf('device check') >= 0 || line.indexOf('renderD128') >= 0) icon = '\uD83D\uDD0D ';
+        else if (line.indexOf('GPU encoders found') >= 0) icon = '\uD83D\uDCCB ';
+        else if (line.indexOf('hardware decoding') >= 0) icon = '\uD83C\uDFAC ';
+        else if (line.indexOf('benchmarking ') >= 0) icon = '\uD83C\uDFCE\uFE0F ';
+        else if (line.indexOf('bench ') >= 0 && line.indexOf('speed=') >= 0) { icon = '\u26A1 '; cls = 'good'; }
+        else if (line.indexOf('bench ') >= 0 && line.indexOf('FAILED') >= 0) { icon = '\u274C '; cls = 'bad'; }
+        else if (line.indexOf('=== RESULT') >= 0) { icon = '\uD83C\uDFC1 '; cls = (line.indexOf('nvenc') >= 0 || line.indexOf('qsv') >= 0 || line.indexOf('amf') >= 0 || line.indexOf('vaapi') >= 0) ? 'good' : 'warn'; }
+
+        var bold = line.indexOf('=== RESULT') >= 0 ? 'font-weight:600;font-size:12px;margin-top:6px;padding:4px 0;border-top:1px solid #1f1f2e' : '';
+        return '<div style="margin-bottom:2px;' + bold + '">' + icon + '<span style="color:#484f58">' + esc(ts) + '</span> <span class="' + cls + '">' + esc(line) + '</span></div>';
+      }).join('');
+      // Benchmark summary cards
+      var benchHtml = '';
+      var benchKeys = data.hwBenchmark ? Object.keys(data.hwBenchmark) : [];
+      if (benchKeys.length > 0) {
+        // Sort: selected first, then available HW, then CPU; within each group by speed desc
+        var labelOrder = { selected: 0, available: 1, cpu: 2 };
+        benchKeys.sort(function(a, b) {
+          var ba = data.hwBenchmark[a], bb = data.hwBenchmark[b];
+          var la = labelOrder[ba.label] != null ? labelOrder[ba.label] : 1;
+          var lb = labelOrder[bb.label] != null ? labelOrder[bb.label] : 1;
+          if (la !== lb) return la - lb;
+          return (bb.speed || 0) - (ba.speed || 0);
+        });
+        benchHtml += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1f1f2e">';
+        benchHtml += '<div style="font-weight:600;font-size:12px;color:#e2e8f0;margin-bottom:6px">\uD83C\uDFCE\uFE0F Encoder Performance (1080p, 90 frames, noisy testsrc2)</div>';
+        benchHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        benchKeys.forEach(function(encName) {
+          var b = data.hwBenchmark[encName];
+          if (!b) return;
+          var speedColor = b.speed >= 5 ? '#10b981' : b.speed >= 2 ? '#f59e0b' : '#ef4444';
+          var isGpu = b.label !== 'cpu';
+          var typeBadge = isGpu ? '<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:#4f46e5;color:#fff;margin-left:4px">GPU</span>' : '<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:#64748b;color:#fff;margin-left:4px">CPU</span>';
+          var selBadge = b.label === 'selected' ? ' \u2705' : '';
+          var borderColor = b.label === 'selected' ? '#10b981' : '#1f1f2e';
+          benchHtml += '<div style="flex:1;min-width:180px;background:#13131a;border:1px solid ' + borderColor + ';border-radius:6px;padding:8px 10px">';
+          benchHtml += '<div style="font-size:11px;color:#8b949e;margin-bottom:4px">' + esc(encName) + selBadge + typeBadge + '</div>';
+          benchHtml += '<div style="font-size:20px;font-weight:700;color:' + speedColor + '">' + (b.speed || '?') + 'x</div>';
+          benchHtml += '<div style="font-size:10px;color:#8b949e;margin-top:2px">';
+          if (b.rtime != null) benchHtml += 'real: ' + b.rtime + 's &nbsp;';
+          if (b.maxrssMB != null) benchHtml += 'mem: ' + b.maxrssMB + 'MB &nbsp;';
+          if (b.wallMs != null) benchHtml += 'wall: ' + b.wallMs + 'ms';
+          benchHtml += '</div></div>';
+        });
+        benchHtml += '</div></div>';
+      }
+      // Decode benchmark cards
+      var decBenchHtml = '';
+      var decKeys = data.hwDecodeBenchmark ? Object.keys(data.hwDecodeBenchmark) : [];
+      if (decKeys.length > 0) {
+        // Sort: fastest first
+        decKeys.sort(function(a, b) {
+          return (data.hwDecodeBenchmark[b].speed || 0) - (data.hwDecodeBenchmark[a].speed || 0);
+        });
+        decBenchHtml += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1f1f2e">';
+        decBenchHtml += '<div style="font-weight:600;font-size:12px;color:#e2e8f0;margin-bottom:6px">\uD83D\uDCE5 Decoder Performance (1080p, 90 frames, real H.264 file)</div>';
+        decBenchHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        decKeys.forEach(function(method) {
+          var b = data.hwDecodeBenchmark[method];
+          if (!b) return;
+          var speedColor = b.speed >= 50 ? '#10b981' : b.speed >= 10 ? '#f59e0b' : '#ef4444';
+          var isSw = method === 'software';
+          var typeBadge = isSw ? '<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:#64748b;color:#fff;margin-left:4px">CPU</span>' : '<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:#4f46e5;color:#fff;margin-left:4px">GPU</span>';
+          var borderColor = isSw ? '#1f1f2e' : '#4f46e5';
+          decBenchHtml += '<div style="flex:1;min-width:160px;background:#13131a;border:1px solid ' + borderColor + ';border-radius:6px;padding:8px 10px">';
+          decBenchHtml += '<div style="font-size:11px;color:#8b949e;margin-bottom:4px">' + esc(b.label || method) + typeBadge + '</div>';
+          decBenchHtml += '<div style="font-size:20px;font-weight:700;color:' + speedColor + '">' + (b.speed || '?') + 'x</div>';
+          decBenchHtml += '<div style="font-size:10px;color:#8b949e;margin-top:2px">';
+          if (b.rtime != null) decBenchHtml += 'real: ' + b.rtime + 's &nbsp;';
+          if (b.maxrssMB != null) decBenchHtml += 'mem: ' + b.maxrssMB + 'MB &nbsp;';
+          if (b.wallMs != null) decBenchHtml += 'wall: ' + b.wallMs + 'ms';
+          decBenchHtml += '</div></div>';
+        });
+        decBenchHtml += '</div></div>';
+      }
+      var fullHtml = hwHtml + benchHtml + decBenchHtml;
+      if (hwBody.innerHTML !== fullHtml) hwBody.innerHTML = fullHtml;
+    }
+  }
+
+  // Global server logs
+  const glc = document.getElementById('globalLogsContainer');
+  if (data.globalLogs && data.globalLogs.length > 0) {
+    let gl = '<div class="session"><div class="session-header" onclick="this.parentElement.classList.toggle(&apos;collapsed&apos;)"><span style="color:#ef4444;font-weight:600">Server Logs</span><span style="flex:1"></span><span style="font-size:11px;color:#8b949e">' + data.globalLogs.length + ' entries</span></div>';
+    gl += '<div class="log-area" data-log-id="global" style="max-height:200px">';
+    for (const log of data.globalLogs) {
+      const ts = new Date(log.t).toLocaleTimeString();
+      const lvlCls = log.level === 'crash' ? 'bad' : log.level === 'error' ? 'bad' : 'warn';
+      gl += '<div><span style="color:#484f58">' + esc(ts) + '</span> <span class="' + lvlCls + '">[' + esc(log.level) + ']</span> ' + esc(log.msg.substring(0, 500)) + '</div>';
+    }
+    gl += '</div></div>';
+    if (glc.innerHTML !== gl) glc.innerHTML = gl;
+  } else if (glc.innerHTML !== '') {
+    glc.innerHTML = '';
+  }
+
+  const container = document.getElementById('sessions');
+  if (!data.sessions || data.sessions.length === 0) {
+    var noHtml = '<div class="no-sessions">No active transcode sessions</div>';
+    if (container.innerHTML !== noHtml) container.innerHTML = noHtml;
+    restoreScrollPositions(scrollPos);
+    return;
+  }
+
+  // Build a set of current session IDs to detect removals
+  const activeSids = new Set(data.sessions.map(s => s.sid));
+
+  // Remove session elements that no longer exist
+  container.querySelectorAll('.session[data-sid]').forEach(el => {
+    if (!activeSids.has(el.dataset.sid)) {
+      _expandedArgs.delete('args_' + el.dataset.sid);
+      el.remove();
+    }
+  });
+
+  // Remove the "no sessions" placeholder if present
+  const placeholder = container.querySelector('.no-sessions');
+  if (placeholder) placeholder.remove();
+
+  for (const s of data.sessions) {
+    let el = container.querySelector('.session[data-sid="' + s.sid + '"]');
+    if (!el) {
+      // New session — create skeleton once
+      el = document.createElement('div');
+      el.className = 'session';
+      el.dataset.sid = s.sid;
+      el.innerHTML = buildSessionHtml(s);
+      container.appendChild(el);
+    }
+    // Patch only changed values
+    updateSession(el, s);
+  }
+  restoreScrollPositions(scrollPos);
+}
+
+function row(k, v, cls) {
+  return '<div class="row"><span class="k">' + esc(k) + '</span><span class="v' + (cls ? ' '+cls : '') + '">' + esc(String(v!=null?v:'-')) + '</span></div>';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function buildSessionHtml(s) {
+    const id = s.sid;
+    const fileName = s.url ? s.url.split('/').pop().split('?')[0] : '-';
+
+    let html = '';
+    html += '<div class="session-header" onclick="this.parentElement.classList.toggle(&apos;collapsed&apos;)">';
+    html += '<span class="sid">' + esc(id) + '</span>';
+    html += '<span style="flex:1;margin-left:12px;font-size:11px;color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(fileName) + '</span>';
+    html += '<span id="hdr_ebml_' + id + '" style="display:none"></span>';
+    html += '<span id="hdr_strategy_' + id + '" class="hdr-stat hdr-badge"></span>';
+    html += '<span id="hdr_codec_' + id + '" class="hdr-stat hdr-codec"></span>';
+    html += '<span id="hdr_ffcpu_' + id + '" class="hdr-stat"></span>';
+    html += '<span id="hdr_buf_' + id + '" class="hdr-stat"></span>';
+    html += '<span id="hdr_prog_' + id + '" class="hdr-stat" style="display:none"></span>';
+    html += '<span id="hdr_ip_' + id + '" style="font-size:10px;margin-right:6px"></span>';
+    html += '<span id="hdr_dl_' + id + '" style="font-size:11px;color:#10b981;margin-right:8px"></span>';
+    html += '<span id="hdr_state_' + id + '" class="state"></span>';
+    html += '</div>';
+    html += '<div class="session-body">';
+
+    // Source Info
+    html += '<div class="section"><h3>Source</h3>';
+    html += vrow(id, 'strategy', 'Strategy');
+    html += vrow(id, 'fileSize', 'File Size');
+    html += vrow(id, 'duration', 'Duration');
+    html += vrow(id, 'audioTrack', 'Audio Track');
+    html += vrow(id, 'audioBitrate', 'Audio Bitrate');
+    html += '<div class="url-row" id="v_url_' + id + '"></div>';
+    html += '</div>';
+
+    // Playback Progress
+    html += '<div class="section"><h3>Playback Progress</h3>';
+    html += vrow(id, 'seekPos', 'Seek Position');
+    html += vrow(id, 'consumed', 'Consumed');
+    html += vrow(id, 'produced', 'Produced');
+    html += vrow(id, 'memBuffer', 'In-Memory Buffer');
+    html += '<div id="v_progressRow_' + id + '" style="display:none">';
+    html += vrow(id, 'progress', 'Progress');
+    html += '<div class="bar-container" id="v_progressBarContainer_' + id + '" style="position:relative"></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Segments
+    html += '<div class="section"><h3>Segments</h3>';
+    html += vrow(id, 'segMem', 'In Memory');
+    html += vrow(id, 'bufBehind', '◀ Behind (sec)');
+    html += vrow(id, 'bufAhead', 'Ahead ▶ (sec)');
+    html += vrow(id, 'nextSeq', 'Next Seq');
+    html += vrow(id, 'seqBase', 'Seq Base');
+    html += vrow(id, 'segRange', 'Range');
+    html += vrow(id, 'avgSeg', 'Avg Duration');
+    html += vrow(id, 'lastCons', 'Consumed Time');
+    html += vrow(id, 'diskFiles', 'Disk Files');
+    html += '</div>';
+
+    // Audio Tracks (only shown when multi-audio)
+    html += '<div class="section" id="sec_audio_' + id + '" style="display:none"><h3>Audio Tracks</h3>';
+    html += '<div id="v_audioTracks_' + id + '"></div>';
+    html += '</div>';
+
+    // FFmpeg & Codec Conversion
+    html += '<div class="section"><h3>FFmpeg / Codecs</h3>';
+    html += vrow(id, 'ffAlive', 'Alive');
+    html += vrow(id, 'ffPid', 'PID');
+    html += vrow(id, 'ffCpu', 'CPU %');
+    html += vrow(id, 'ffMem', 'Memory');
+    html += vrow(id, 'ffGpu', 'GPU %');
+    html += vrow(id, 'ffGpuMem', 'GPU Memory');
+    html += vrow(id, 'encoder', 'Encoder');
+    const argsId = 'args_' + id;
+    const argsOpen = _expandedArgs.has(argsId);
+    html += '<div class="row" style="cursor:pointer" onclick="toggleEl(&quot;' + argsId + '&quot;)">';
+    html += '<span class="k">Args</span><span class="v" id="v_argsLabel_' + id + '" style="color:#58a6ff">' + (argsOpen ? 'click to collapse' : 'click to expand') + '</span></div>';
+    html += '<pre id="' + argsId + '" style="display:' + (argsOpen ? 'block' : 'none') + ';background:#13131a;border:1px solid #1f1f2e;border-radius:4px;padding:8px;margin:4px 0;font-size:11px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all;user-select:all;max-height:150px;overflow:auto"></pre>';
+    html += '<div id="v_ffExitRow_' + id + '" style="display:none">' + vrow(id, 'ffExit', 'Exit Code') + '</div>';
+    html += '<div id="v_ffSigRow_' + id + '" style="display:none">' + vrow(id, 'ffSig', 'Signal') + '</div>';
+    html += '<div id="v_ebmlRow_' + id + '" style="display:none">' + vrow(id, 'ebmlErr', 'EBML Errors') + '</div>';
+    html += vrow(id, 'container', 'Container');
+    html += vrow(id, 'resolution', 'Resolution');
+    html += vrow(id, 'pixFmt', 'Pixel Format');
+    html += vrow(id, 'bframes', 'B-Frames');
+    html += vrow(id, 'videoCodec', 'Video');
+    html += vrow(id, 'audioCodec', 'Audio');
+    html += '</div>';
+
+    // Downloader
+    html += '<div class="section"><h3>Downloader</h3>';
+    html += vrow(id, 'totalDl', 'Total Downloaded');
+    html += vrow(id, 'diskUsage', 'Disk Usage');
+    html += vrow(id, 'dlBytes', 'Current DL Bytes');
+    html += vrow(id, 'dlOffset', 'Offset');
+    html += vrow(id, 'dlState', 'State');
+    html += vrow(id, 'dlRetries', 'Retries');
+    html += '<div id="v_dlProgressRow_' + id + '" style="display:none">';
+    html += vrow(id, 'dlProgress', 'DL Progress');
+    html += '<div class="bar-container" id="v_dlBarContainer_' + id + '" style="position:relative"></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Seek / Cache Info
+    html += '<div class="section"><h3>Seek Index</h3>';
+    html += vrow(id, 'seekMethod', 'Seek Method');
+    html += vrow(id, 'hasCues', 'Has Cues');
+    html += vrow(id, 'cueEntries', 'Cue Entries');
+    html += vrow(id, 'hasHeader', 'Has Header');
+    html += vrow(id, 'headerSize', 'Header Size');
+    html += '</div>';
+
+    // Timing
+    html += '<div class="section"><h3>Timing</h3>';
+    html += vrow(id, 'started', 'Started');
+    html += vrow(id, 'age', 'Session Age');
+    html += vrow(id, 'idle', 'Idle');
+    html += vrow(id, 'clientIp', 'Client IP');
+    html += vrow(id, 'tmpDir', 'Tmp Dir');
+    html += '</div>';
+
+    // Actions
+    html += '<div class="section actions"><h3>Actions</h3>';
+    html += '<button id="btn_pause_' + esc(id) + '" onclick="togglePause(&quot;' + esc(id) + '&quot;)">Stop</button> ';
+    html += '<button class="danger" onclick="killSession(&quot;' + esc(id) + '&quot;)">Kill &amp; Clean</button>';
+    html += '</div>';
+
+    // Logs
+    html += '<div class="log-area" data-log-id="' + esc(id) + '" id="v_logs_' + id + '"></div>';
+
+    html += '</div>';
+    return html;
+}
+
+function vrow(sid, key, label) {
+  return '<div class="row"><span class="k">' + esc(label) + '</span><span class="v" id="v_' + key + '_' + sid + '">-</span></div>';
+}
+
+function updateSession(el, s) {
+    const id = s.sid;
+
+    function sv(key, val, cls) {
+      const span = el.querySelector('#v_' + key + '_' + id);
+      if (!span) return;
+      const str = String(val != null ? val : '-');
+      if (span.textContent !== str) span.textContent = str;
+      if (cls !== undefined) { const c = 'v' + (cls ? ' ' + cls : ''); if (span.className !== c) span.className = c; }
+    }
+
+    // Header
+    const stateEl = el.querySelector('#hdr_state_' + id);
+    if (stateEl) {
+      const stateClass = 'state state-' + (s.state || 'stopped');
+      const stateText = s.state || 'unknown';
+      if (stateEl.textContent !== stateText) stateEl.textContent = stateText;
+      if (stateEl.className !== stateClass) stateEl.className = stateClass;
+    }
+    const dlHdr = el.querySelector('#hdr_dl_' + id);
+    if (dlHdr) { const t = fmtBytes(s.totalDownloaded) + ' ↓'; if (dlHdr.textContent !== t) dlHdr.textContent = t; }
+    const ebmlHdr = el.querySelector('#hdr_ebml_' + id);
+    if (ebmlHdr) {
+      if (s.ebmlErrors > 0) {
+        ebmlHdr.style.display = '';
+        if (!ebmlHdr._styled) { ebmlHdr.style.cssText = 'font-size:10px;margin-right:6px;padding:1px 6px;border-radius:8px;background:#f59e0b40;color:#f59e0b;font-weight:600'; ebmlHdr._styled = true; }
+        ebmlHdr.title = s.ebmlErrors + ' corrupt EBML byte(s) in source MKV';
+        const et = '⚠ EBML'; if (ebmlHdr.textContent !== et) ebmlHdr.textContent = et;
+      } else { ebmlHdr.style.display = 'none'; }
+    }
+    const ipHdr = el.querySelector('#hdr_ip_' + id);
+    if (ipHdr && s.clientIp) {
+      const isLocal = /^(127.|::1|::ffff:127.|localhost)/.test(s.clientIp);
+      ipHdr.style.color = isLocal ? '#10b981' : '#58a6ff';
+      const ipText = (isLocal ? '🏠' : '🌐') + ' ' + s.clientIp;
+      if (ipHdr.textContent !== ipText) ipHdr.textContent = ipText;
+    }
+
+    // Header inline stats
+    const hdrStrategy = el.querySelector('#hdr_strategy_' + id);
+    if (hdrStrategy && s.strategy) {
+      const st = s.strategy;
+      if (hdrStrategy.textContent !== st) hdrStrategy.textContent = st;
+      const isCopy = st === 'remux' || st === 'copy';
+      hdrStrategy.style.background = isCopy ? '#10b98130' : '#f59e0b30';
+      hdrStrategy.style.color = isCopy ? '#10b981' : '#f59e0b';
+    }
+    const hdrCodec = el.querySelector('#hdr_codec_' + id);
+    if (hdrCodec) {
+      const vc = (s.sourceVideoCodec || '?').toUpperCase();
+      const ovc = (s.outputVideoCodec || '?').toUpperCase();
+      const ct = vc + ' → ' + ovc;
+      if (hdrCodec.textContent !== ct) hdrCodec.textContent = ct;
+      hdrCodec.style.color = (vc !== ovc && ovc !== 'COPY') ? '#f59e0b' : '#8b949e';
+    }
+    const hdrFfcpu = el.querySelector('#hdr_ffcpu_' + id);
+    if (hdrFfcpu) {
+      const cpuVal = s.ffmpegCpuPct || 0;
+      const ct = '⚙ ' + cpuVal + '%';
+      if (hdrFfcpu.textContent !== ct) hdrFfcpu.textContent = ct;
+      hdrFfcpu.style.color = cpuVal > 80 ? '#ef4444' : cpuVal > 50 ? '#f59e0b' : '#8b949e';
+    }
+    const hdrBuf = el.querySelector('#hdr_buf_' + id);
+    if (hdrBuf) {
+      const ahead = s.aheadSec != null ? s.aheadSec : 0;
+      const ct = '▶ ' + ahead + 's';
+      if (hdrBuf.textContent !== ct) hdrBuf.textContent = ct;
+      hdrBuf.style.color = ahead < 5 ? '#ef4444' : ahead < 15 ? '#f59e0b' : '#8b949e';
+    }
+    const hdrProg = el.querySelector('#hdr_prog_' + id);
+    if (hdrProg) {
+      if (s.fileDuration > 0) {
+        const seekPos2 = s.startTime || 0;
+        const consumedPos2 = seekPos2 + (s.consumedTime || 0);
+        const pp = pct(consumedPos2, s.fileDuration);
+        const ct = pp + '%';
+        if (hdrProg.textContent !== ct) hdrProg.textContent = ct;
+        hdrProg.style.display = '';
+        hdrProg.style.color = '#58a6ff';
+      } else {
+        hdrProg.style.display = 'none';
+      }
+    }
+
+    // Source
+    sv('strategy', s.strategy);
+    sv('fileSize', fmtBytes(s.fileSize));
+    sv('duration', fmtDuration(s.fileDuration));
+    sv('audioTrack', '#' + s.audioTrack);
+    sv('audioBitrate', s.audioBitrate || '-');
+    const urlEl = el.querySelector('#v_url_' + id);
+    if (urlEl) { const ut = s.url || '-'; if (urlEl.textContent !== ut) urlEl.textContent = ut; }
+
+    // Playback
+    const seekPos = s.startTime || 0;
+    const consumedPos = seekPos + (s.consumedTime || 0);
+    const producedPos = seekPos + (s.totalProducedSec || s.totalBufferedSec || 0);
+    const progressPct = s.fileDuration > 0 ? pct(consumedPos, s.fileDuration) : 0;
+    sv('seekPos', fmtDuration(seekPos));
+    sv('consumed', fmtDuration(consumedPos) + ' (' + (s.consumedTime||0) + 's)');
+    sv('produced', fmtDuration(producedPos) + ' (' + (s.totalProducedSec||0) + 's)');
+    sv('memBuffer', s.totalBufferedSec + 's (' + s.segmentsInMemory + ' segs)');
+    const progRow = el.querySelector('#v_progressRow_' + id);
+    if (progRow) {
+      progRow.style.display = s.fileDuration > 0 ? '' : 'none';
+      sv('progress', progressPct + '%');
+      const pbc = el.querySelector('#v_progressBarContainer_' + id);
+      if (pbc && s.producedRanges && s.fileDuration > 0) {
+        let rh = '';
+        for (const r of s.producedRanges) {
+          const left = (r.startSec / s.fileDuration * 100).toFixed(2);
+          const width = ((r.endSec - r.startSec) / s.fileDuration * 100).toFixed(2);
+          rh += '<div style="position:absolute;top:0;bottom:0;left:' + left + '%;width:' + width + '%;background:#388bfd;border-radius:3px"></div>';
+        }
+        if (pbc.innerHTML !== rh) pbc.innerHTML = rh;
+      }
+    }
+
+    // Segments
+    sv('segMem', s.segmentsInMemory);
+    const behindClass = s.behindSec > 300 ? 'bad' : s.behindSec > 120 ? 'warn' : 'good';
+    sv('bufBehind', (s.behindSec != null ? s.behindSec + 's' : '-'), behindClass);
+    const aheadVal = s.aheadSec != null ? s.aheadSec : 0;
+    const aheadClass = aheadVal < 5 ? 'bad' : aheadVal < 15 ? 'warn' : 'good';
+    sv('bufAhead', (s.aheadSec != null ? s.aheadSec + 's' : '-'), aheadClass);
+    sv('nextSeq', s.nextSeq);
+    sv('seqBase', s.seqBase);
+    sv('segRange', s.segmentRange);
+    sv('avgSeg', s.avgSegDuration + 's');
+    sv('lastCons', s.consumedTime >= 0 ? s.consumedTime + 's' : 'none');
+    sv('diskFiles', s.diskFiles);
+
+    // Audio Tracks
+    const audioSec = el.querySelector('#sec_audio_' + id);
+    if (audioSec) {
+      if (s.audioTrackCount > 1 && s.audioOutputs && s.audioOutputs.length > 0) {
+        audioSec.style.display = '';
+        const atEl = el.querySelector('#v_audioTracks_' + id);
+        if (atEl) {
+          let atHtml = '';
+          s.audioOutputs.forEach(ao => {
+            const lbl = ao.label;
+            const name = lbl.name || lbl.lang || ('Track ' + ao.track);
+            const lang = lbl.lang ? ' (' + esc(lbl.lang) + ')' : '';
+            atHtml += '<div class="row"><span class="k">a' + ao.track + ' ' + esc(name) + lang + '</span>';
+            atHtml += '<span class="v">' + ao.segmentsInMemory + ' segs, ' + (ao.bufferedSec || 0) + 's buf, ' + (ao.timeRange || '-') + '</span></div>';
+          });
+          atEl.innerHTML = atHtml;
+        }
+      } else {
+        audioSec.style.display = 'none';
+      }
+    }
+
+    // FFmpeg
+    sv('ffAlive', s.ffmpegAlive ? 'YES' : 'NO', s.ffmpegAlive ? 'good' : 'bad');
+    sv('ffPid', s.ffmpegPid || '-');
+        // Per-session ffmpeg CPU, memory, GPU
+        if (s.ffmpegAlive) {
+            sv('ffCpu', (s.ffmpegCpuPct || 0) + '%', s.ffmpegCpuPct > 80 ? 'bad' : s.ffmpegCpuPct > 50 ? 'warn' : 'good');
+            sv('ffMem', (s.ffmpegMemoryMB || 0) + ' MB');
+            if (s.encoderType !== 'CPU') {
+                sv('ffGpu', s.ffmpegGpuPct > 0 ? s.ffmpegGpuPct + '%' : '-', s.ffmpegGpuPct > 80 ? 'bad' : s.ffmpegGpuPct > 50 ? 'warn' : 'good');
+                sv('ffGpuMem', typeof s.ffmpegGpuMemMB === 'number' && s.ffmpegGpuMemMB > 0 ? s.ffmpegGpuMemMB + ' MB' : '-', 'good');
+            } else {
+                sv('ffGpu', 'N/A'); sv('ffGpuMem', 'N/A');
+            }
+        } else {
+            sv('ffCpu', '-'); sv('ffMem', '-'); sv('ffGpu', '-'); sv('ffGpuMem', '-');
+        }
+        sv('encoder', s.encoderType || 'CPU', s.encoderType !== 'CPU' ? 'good' : '');
+    const argsEl = el.querySelector('#args_' + id);
+    if (argsEl && s.ffmpegArgs) { const at = 'ffmpeg ' + s.ffmpegArgs; if (argsEl.textContent !== at) argsEl.textContent = at; }
+    const exitRow = el.querySelector('#v_ffExitRow_' + id);
+    if (exitRow) {
+      if (s.ffmpegExitCode !== null && s.ffmpegExitCode !== undefined) { exitRow.style.display = ''; sv('ffExit', s.ffmpegExitCode, s.ffmpegExitCode === 0 ? 'good' : 'bad'); }
+      else exitRow.style.display = 'none';
+    }
+    const sigRow = el.querySelector('#v_ffSigRow_' + id);
+    if (sigRow) { if (s.ffmpegSignal) { sigRow.style.display = ''; sv('ffSig', s.ffmpegSignal, 'warn'); } else sigRow.style.display = 'none'; }
+    const ebmlRow = el.querySelector('#v_ebmlRow_' + id);
+    if (ebmlRow) { if (s.ebmlErrors > 0) { ebmlRow.style.display = ''; sv('ebmlErr', '⚠️ ' + s.ebmlErrors + ' corrupt byte' + (s.ebmlErrors > 1 ? 's' : '') + ' in source', 'warn'); } else ebmlRow.style.display = 'none'; }
+
+    sv('container', s.sourceFormatName || '-');
+    const resText = (s.outputResolution && s.outputResolution !== s.resolution) ? s.resolution + ' → ' + s.outputResolution : (s.resolution || '-');
+    sv('resolution', resText, (s.outputResolution && s.outputResolution !== s.resolution) ? 'warn' : '');
+    sv('pixFmt', s.sourcePixFmt || '-');
+    sv('bframes', s.sourceHasBFrames || '0');
+    const vc = s.sourceVideoCodec || '?'; const ovc = s.outputVideoCodec || '?';
+    const vcChanged = vc !== ovc && ovc !== 'copy' && ovc !== '?';
+    const vcBr = s.sourceVideoBitrate ? ' @ ' + (s.sourceVideoBitrate > 1000000 ? (s.sourceVideoBitrate/1000000).toFixed(1)+'Mbps' : Math.round(s.sourceVideoBitrate/1000)+'kbps') : '';
+    const vcProfile = s.sourceVideoProfile ? ' (' + s.sourceVideoProfile + (s.sourceVideoLevel ? ' L' + (s.sourceVideoLevel/10) : '') + ')' : '';
+    sv('videoCodec', vc.toUpperCase() + vcProfile + vcBr + ' → ' + ovc.toUpperCase(), vcChanged ? 'warn' : 'good');
+    const ac = s.sourceAudioCodec || '?'; const oac = s.outputAudioCodec || '?';
+    const acChanged = ac !== oac && oac !== 'copy' && oac !== '?';
+    const acBr = s.sourceAudioBitrate ? ' @ ' + Math.round(s.sourceAudioBitrate/1000)+'kbps' : '';
+    const acCh = s.sourceAudioChannels ? ' ' + s.sourceAudioChannels + 'ch' : '';
+    const acSr = s.sourceAudioSampleRate ? '/' + (s.sourceAudioSampleRate/1000)+'kHz' : '';
+    sv('audioCodec', ac.toUpperCase() + acBr + acCh + acSr + ' → ' + oac.toUpperCase() + ' ' + (s.audioBitrate||'128k'), acChanged ? 'warn' : 'good');
+
+    // Downloader
+    sv('totalDl', fmtBytes(s.totalDownloaded), 'good');
+    sv('diskUsage', fmtBytes(s.diskUsageBytes));
+    if (s.downloader) {
+      const dl = s.downloader;
+      sv('dlBytes', fmtBytes(dl.bytesRead));
+      sv('dlOffset', fmtBytes(dl.offset));
+      const dlState = dl.destroyed ? 'Destroyed' : dl.throttled ? 'Throttled' : dl.paused ? 'Backpressure' : 'Streaming';
+      sv('dlState', dlState, dl.destroyed ? 'bad' : dl.throttled ? 'warn' : 'good');
+      sv('dlRetries', dl.retries, dl.retries > 0 ? 'warn' : 'good');
+      const dlProgRow = el.querySelector('#v_dlProgressRow_' + id);
+      if (dlProgRow) {
+        if (s.fileSize > 0) {
+          dlProgRow.style.display = '';
+          const dlPct = pct(s.totalDownloaded, s.fileSize);
+          sv('dlProgress', dlPct + '%');
+          const dbc = el.querySelector('#v_dlBarContainer_' + id);
+          if (dbc && s.downloadedRanges) {
+            let rh = '';
+            for (const r of s.downloadedRanges) {
+              const left = (r.startByte / s.fileSize * 100).toFixed(2);
+              const width = ((r.endByte - r.startByte) / s.fileSize * 100).toFixed(2);
+              const m = r.seekMethod || 'initial';
+              const bg = m === 'full-redownload' ? '#f59e0b' : m === 'byte-range-cues' ? '#10b981' : m === 'byte-range-linear' ? '#58a6ff' : '#10b981';
+              const label = m === 'full-redownload' ? 'Full re-download from byte 0' : m === 'byte-range-cues' ? 'Byte-range seek (Cues)' : m === 'byte-range-linear' ? 'Byte-range seek (linear est.)' : 'Initial download';
+              rh += '<div title="' + label + '" style="position:absolute;top:0;bottom:0;left:' + left + '%;width:' + width + '%;background:' + bg + ';border-radius:3px"></div>';
+            }
+            if (dbc.innerHTML !== rh) dbc.innerHTML = rh;
+          }
+        } else dlProgRow.style.display = 'none';
+      }
+    } else {
+      sv('dlBytes', '-'); sv('dlOffset', '-'); sv('dlState', 'No downloader', 'warn'); sv('dlRetries', '-');
+    }
+
+    // Seek index
+    const smLabels = { 'initial': 'Initial', 'full-redownload': 'Full re-download (from byte 0)', 'byte-range-cues': 'Byte-range (Cues)', 'byte-range-linear': 'Byte-range (linear est.)' };
+    const smClass = s.seekMethod === 'full-redownload' ? 'warn' : s.seekMethod && s.seekMethod.startsWith('byte-range') ? 'good' : '';
+    sv('seekMethod', smLabels[s.seekMethod] || s.seekMethod || '-', smClass);
+    sv('hasCues', s.hasCues ? 'YES' : 'NO', s.hasCues ? 'good' : '');
+    sv('cueEntries', s.cueEntries);
+    sv('hasHeader', s.hasHeader ? 'YES' : 'NO', s.hasHeader ? 'good' : '');
+    sv('headerSize', fmtBytes(s.headerSize));
+
+    // Timing
+    const idleClass = s.idleSec > 60 ? 'bad' : s.idleSec > 20 ? 'warn' : 'good';
+    sv('started', s.createdAt ? new Date(s.createdAt).toLocaleTimeString() : '-');
+    sv('age', fmtTime(s.ageSec));
+    sv('idle', fmtTime(s.idleSec), idleClass);
+    sv('clientIp', s.clientIp || '-');
+    sv('tmpDir', s.tmpDir || '-');
+
+    // Sync pause button with session state
+    const pauseBtn = document.getElementById('btn_pause_' + id);
+    if (pauseBtn) {
+      if (s.state === 'paused') {
+        pauseBtn.textContent = 'Resume';
+        pauseBtn.classList.add('paused');
+        _pausedSessions.add(id);
+      } else if (_pausedSessions.has(id) && s.state !== 'paused') {
+        pauseBtn.textContent = 'Stop';
+        pauseBtn.classList.remove('paused');
+        _pausedSessions.delete(id);
+      }
+    }
+
+    // Logs — only update if log count changed
+    const logsEl = el.querySelector('#v_logs_' + id);
+    if (logsEl && s.logs) {
+      if (logsEl._logCount !== s.logs.length) {
+        let lh = '';
+        for (const log of s.logs) {
+          const ts = new Date(log.t).toLocaleTimeString();
+          const lvlCls = log.level === 'error' ? 'bad' : log.level === 'ffmpeg' ? 'warn' : 'good';
+          lh += '<div><span style="color:#484f58">' + esc(ts) + '</span> <span class="' + lvlCls + '">[' + esc(log.level) + ']</span> ' + esc(log.msg.substring(0, 500)) + '</div>';
+        }
+        logsEl.innerHTML = lh;
+        logsEl._logCount = s.logs.length;
+      }
+    }
+}
+
+function toggleEl(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (_expandedArgs.has(id)) { _expandedArgs.delete(id); el.style.display = 'none'; }
+  else { _expandedArgs.add(id); el.style.display = 'block'; }
+}
+
+function stopSession(sid) {
+  fetch('/transcode?live_stop=' + encodeURIComponent(sid)).then(r=>r.json()).then(d=>console.log('stop',d));
+}
+
+const _pausedSessions = new Set();
+function togglePause(sid) {
+  const btn = document.getElementById('btn_pause_' + sid);
+  if (_pausedSessions.has(sid)) {
+    fetch('/transcode?sid=' + encodeURIComponent(sid) + '&live_resume=1').then(r=>r.json()).then(d=>{
+      console.log('resume', d);
+      if (d.status === 'resumed') {
+        _pausedSessions.delete(sid);
+        if (btn) { btn.textContent = 'Stop'; btn.classList.remove('paused'); }
+      }
+    });
+  } else {
+    fetch('/transcode?sid=' + encodeURIComponent(sid) + '&live_pause=1').then(r=>r.json()).then(d=>{
+      console.log('pause', d);
+      if (d.status === 'paused') {
+        _pausedSessions.add(sid);
+        if (btn) { btn.textContent = 'Resume'; btn.classList.add('paused'); }
+      }
+    });
+  }
+}
+
+function killSession(sid) {
+  if (!confirm('Kill session ' + sid + '?')) return;
+  _pausedSessions.delete(sid);
+  fetch('/transcode?sid=' + encodeURIComponent(sid) + '&live_stop=1').then(r=>r.json()).then(d=>console.log('kill',d));
+}
+
+connect();
+</script>
+</body>
+</html>
