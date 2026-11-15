@@ -117,7 +117,9 @@ jobs:
           $probe = Invoke-RestMethod "$addr/probe?url=$src" -Headers $headers -TimeoutSec 60
           $probe | ConvertTo-Json -Depth 3 -Compress | ForEach-Object { $_.Substring(0, [Math]::Min(600, $_.Length)) }
           "--- transcode"
-          $start = Invoke-RestMethod "$addr/transcode?url=$src" -Headers $headers -TimeoutSec 120
+          # same call as the web player: POST, live_start=1, the probe result as JSON body
+          $body = @{ probe = $probe.probe } | ConvertTo-Json -Depth 12 -Compress
+          $start = Invoke-RestMethod "$addr/transcode?url=$src&live_start=1&audio=0" -Method Post -Body $body -ContentType 'application/json' -Headers $headers -TimeoutSec 120
           $start | ConvertTo-Json -Compress
           if ($start.status -ne 'started') { throw "transcode did not start" }
           Start-Sleep -Seconds 8
