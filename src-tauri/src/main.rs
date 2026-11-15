@@ -24,6 +24,21 @@ const SITE: &str = "http://televizion.tv/browse/";
 /// The running transcoder, so it can be stopped when the app exits.
 pub struct Transcoder(pub Mutex<Option<Child>>);
 
+/// Appends a line to app.log in the app's data folder (next to transcoder.log), so what happened
+/// at start-up and during updates can be read afterwards. Kept small: restarted past 256 KB.
+pub fn log(app: &tauri::AppHandle, message: &str) {
+    use std::io::Write;
+    let dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let _ = std::fs::create_dir_all(&dir);
+    let file = dir.join("app.log");
+    let big = std::fs::metadata(&file).map(|m| m.len() > 256 * 1024).unwrap_or(false);
+    let opened = std::fs::OpenOptions::new().create(true).write(true).append(!big).truncate(big).open(&file);
+    if let Ok(mut f) = opened {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = writeln!(f, "[{secs}] {message}");
+    }
+}
+
 fn resources(app: &tauri::AppHandle) -> Option<PathBuf> {
     let dir = app.path().resource_dir().ok()?.join("resources");
     // Windows hands out "\\?\C:\…" paths; ffmpeg is happier with plain ones.
@@ -62,6 +77,8 @@ fn main() {
             // Waits (10 s at most, normally a fraction of a second) for the transcoder's port.
             let (child, transcoder_address) = start_transcoder(app.handle());
             app.manage(Transcoder(Mutex::new(child)));
+            log(app.handle(), &format!("Televizion {} started", app.package_info().version));
+            log(app.handle(), &if transcoder_address.is_empty() { "transcoder not running".to_string() } else { format!("transcoder at {transcoder_address}") });
 
             // Tells the web page it runs inside the desktop app and where the transcoder is
             // (assets/js/app.js reads window.televizionDesktop).

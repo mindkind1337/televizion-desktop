@@ -83,3 +83,91 @@ jobs:
           releaseBody: Windows installer. Installed apps update themselves from this release.
           releaseDraft: false
           prerelease: false
+
+      # ── Real run on Windows ────────────────────────────────────────────────────────────────
+      # Installs what was just built, starts it with port 3002 taken (the case that broke the
+      # first version on a real PC), and converts a short piece of an open movie.
+      - name: Install and run the app
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          "installer: $($setup.Name)  {0:N1} MB" -f ($setup.Length / 1MB)
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $dir = "$env:LOCALAPPDATA\Televizion"
+          $exe = Get-ChildItem $dir -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          if (-not $exe) { Get-ChildItem $dir -Recurse | Select-Object FullName; throw "app not installed" }
+          "installed: $($exe.FullName)"
+
+          $busy = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 3002); $busy.Start()
+          $app = Start-Process $exe.FullName -PassThru
+          Start-Sleep -Seconds 25
+          $data = "$env:APPDATA\tv.televizion.desktop"
+          "--- app.log"; Get-Content "$data\app.log"
+          "--- transcoder.log (first lines)"; Get-Content "$data\transcoder.log" -TotalCount 25
+          if ($app.HasExited) { throw "the app exited (code $($app.ExitCode))" }
+          $m = Select-String -Path "$data\app.log" -Pattern 'transcoder at (http://127\.0\.0\.1:\d+)' | Select-Object -Last 1
+          if (-not $m) { throw "the transcoder did not report an address" }
+          $addr = $m.Matches[0].Groups[1].Value
+          if ($addr -match ':3002$') { throw "expected another port than 3002 (it was taken)" }
+          "transcoder answers at $addr"
+
+          $headers = @{ Origin = 'http://televizion.tv' }
+          $src = [uri]::EscapeDataString('http://televizion.tv/browse/demo/movie/demo/demo/202.mkv')
+          "--- probe"
+          $probe = Invoke-RestMethod "$addr/probe?url=$src" -Headers $headers -TimeoutSec 60
+          $probe | ConvertTo-Json -Depth 3 -Compress | ForEach-Object { $_.Substring(0, [Math]::Min(600, $_.Length)) }
+          "--- transcode"
+          $start = Invoke-RestMethod "$addr/transcode?url=$src" -Headers $headers -TimeoutSec 120
+          $start | ConvertTo-Json -Compress
+          if ($start.status -ne 'started') { throw "transcode did not start" }
+          Start-Sleep -Seconds 8
+          $playlist = (Invoke-WebRequest $start.playlist -Headers $headers -TimeoutSec 30 -UseBasicParsing).Content
+          $playlist
+          $segments = ($playlist -split "`n" | Where-Object { $_ -and $_ -notmatch '^#' }).Count
+          if ($segments -lt 1) { throw "no segment in the playlist" }
+          "segments so far: $segments"
+          "--- encoders found"; Select-String -Path "$data\transcoder.log" -Pattern 'RESULT|hwaccel.*(FAILED|OK)' | Select-Object -Last 8 | ForEach-Object { $_.Line }
+
+          Stop-Process -Id $app.Id -Force
+          Start-Sleep -Seconds 4
+          $left = Get-Process | Where-Object { $_.ProcessName -match 'televizion-transcoder|ffmpeg' }
+          if ($left) { $left | Select-Object ProcessName, Id; "note: these were still running after the app was killed (a normal close stops them)" }
+          $busy.Stop()
+
+  # Installs the PREVIOUS release, starts it, and checks that it updates itself to the version
+  # built above. Skipped when there is no older release that knows TVZ_AUTO_UPDATE (1.2.1+).
+  update-test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Previous release updates itself
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TVZ_AUTO_UPDATE: '1'
+        run: |
+          $tags = gh release list -R $env:GITHUB_REPOSITORY --limit 10 --json tagName,isLatest | ConvertFrom-Json
+          $latest = ($tags | Where-Object isLatest).tagName
+          $previous = ($tags | Where-Object { -not $_.isLatest } | Select-Object -First 1).tagName
+          "latest: $latest   previous: $previous"
+          if (-not $previous -or [version]($previous.TrimStart('v')) -lt [version]'1.2.1') { "no older release that can be tested: skipped"; exit 0 }
+          gh release download $previous -R $env:GITHUB_REPOSITORY --pattern '*-setup.exe' --dir old
+          $setup = Get-ChildItem old/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $dir = "$env:LOCALAPPDATA\Televizion"
+          $exe = Get-ChildItem $dir -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          "installed $previous : $($exe.VersionInfo.ProductVersion)"
+          Start-Process $exe.FullName
+          $data = "$env:APPDATA\tv.televizion.desktop"
+          $want = $latest.TrimStart('v')
+          $ok = $false
+          foreach ($i in 1..40) {
+            Start-Sleep -Seconds 6
+            $now = (Get-Item $exe.FullName).VersionInfo.ProductVersion
+            if ($now -like "$want*") { $ok = $true; break }
+          }
+          "--- app.log"; Get-Content "$data\app.log" -ErrorAction SilentlyContinue
+          "installed version now: $((Get-Item $exe.FullName).VersionInfo.ProductVersion)  (wanted $want)"
+          if (-not $ok) { throw "the app did not update itself" }
+          Get-Process | Where-Object { $_.ProcessName -match '^televizion$' } | Stop-Process -Force -ErrorAction SilentlyContinue

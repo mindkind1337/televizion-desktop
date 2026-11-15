@@ -34,12 +34,16 @@ async fn check(app: &AppHandle, declined: &mut Option<String>) {
     let Ok(updater) = app.updater() else { return };
     let update = match updater.check().await {
         Ok(Some(update)) => update,
-        Ok(None) => return,
+        Ok(None) => {
+            crate::log(app, "update check: up to date");
+            return;
+        }
         Err(err) => {
-            eprintln!("update check failed: {err}");
+            crate::log(app, &format!("update check failed: {err}"));
             return;
         }
     };
+    crate::log(app, &format!("update available: {} (running {})", update.version, update.current_version));
     if declined.as_deref() == Some(update.version.as_str()) {
         return;
     }
@@ -49,8 +53,10 @@ async fn check(app: &AppHandle, declined: &mut Option<String>) {
         new = update.version,
         old = update.current_version
     );
+    // TVZ_AUTO_UPDATE=1 installs without asking (used by the automated test of the update path).
+    let unattended = std::env::var("TVZ_AUTO_UPDATE").map(|v| v == "1").unwrap_or(false);
     let dialog_app = app.clone();
-    let accepted = tauri::async_runtime::spawn_blocking(move || {
+    let accepted = unattended || tauri::async_runtime::spawn_blocking(move || {
         dialog_app
             .dialog()
             .message(question)
@@ -66,6 +72,7 @@ async fn check(app: &AppHandle, declined: &mut Option<String>) {
         return;
     }
 
+    crate::log(app, "update: downloading");
     let bytes = match update.download(|_chunk, _total| {}, || {}).await {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -78,6 +85,7 @@ async fn check(app: &AppHandle, declined: &mut Option<String>) {
         let _ = child.kill();
         let _ = child.wait();
     }
+    crate::log(app, "update: installing");
     if let Err(err) = update.install(bytes) {
         failed(app, &format!("{err}"));
         return;
@@ -86,6 +94,8 @@ async fn check(app: &AppHandle, declined: &mut Option<String>) {
 }
 
 fn failed(app: &AppHandle, reason: &str) {
+    crate::log(app, &format!("update failed: {reason}"));
+    if std::env::var("TVZ_AUTO_UPDATE").map(|v| v == "1").unwrap_or(false) { return; }
     let app = app.clone();
     let text = format!("La mise \u{e0} jour n'a pas pu \u{ea}tre install\u{e9}e. / The update could not be installed.\n\n{reason}");
     let _ = tauri::async_runtime::spawn_blocking(move || {
